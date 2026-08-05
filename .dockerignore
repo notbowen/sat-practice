@@ -1,0 +1,13 @@
+_build/
+_opam/
+.git/
+.github/
+.DS_Store
+var/
+*.db
+*.db-shm
+*.db-wal
+Dockerfile*
+fly.toml
+README.md
+test/

@@ -1,0 +1,19 @@
+(library
+ (name sat)
+ (libraries
+  argon2
+  caqti
+  caqti-lwt
+  caqti-lwt.unix
+  caqti-driver-sqlite3
+  cohttp-lwt-unix
+  digestif
+  dream
+  lambdasoup
+  lwt.unix
+  markup
+  mirage-crypto-rng.unix
+  ptime
+  str
+  uri
+  yojson))

@@ -1,0 +1,33 @@
+app = "sat-practice"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SAT_HOST = "127.0.0.1"
+  SAT_PORT = "8080"
+  SAT_DB_PATH = "/data/sat.db"
+  SAT_COOKIE_SECURE = "true"
+  SAT_TUNNEL_ENABLED = "true"
+  CLOUDFLARED_METRICS = "0.0.0.0:2000"
+
+[[mounts]]
+  source = "sat_data"
+  destination = "/data"
+
+[checks.cloudflared]
+  type = "http"
+  port = 2000
+  path = "/ready"
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "60s"
+
+[[restart]]
+  policy = "on-failure"
+  retries = 10
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

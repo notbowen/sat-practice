@@ -62,7 +62,7 @@ let layout ?user ?(title = "SAT Revision") ?notice content =
 let security_headers handler request =
   handler request >|= fun response ->
   Dream.set_header response "Content-Security-Policy"
-    "default-src 'self'; img-src 'self' data: https://*.collegeboard.org; media-src 'self' data: https://*.collegeboard.org; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+    "default-src 'self'; img-src 'self' data: https://*.collegeboard.org; media-src 'self' data: https://*.collegeboard.org; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
   Dream.set_header response "X-Content-Type-Options" "nosniff";
   Dream.set_header response "Referrer-Policy" "no-referrer";
   Dream.set_header response "X-Frame-Options" "DENY";
@@ -438,7 +438,11 @@ let take_module db session request =
                 let question_html = detail.stimulus ^ detail.stem in
                 let body =
                   Printf.sprintf
-                    {|<div id="test-app" data-attempt-id="%d" data-module-id="%d" data-question-id="%d" data-deadline="%Ld" data-csrf="%s" data-results-url="/attempts/%d/results"><header class="test-header"><a class="brand" href="/attempts/%d"><span>SAT</span> Revision</a><strong>%s</strong><div id="timer" class="timer">--:--</div></header><div class="test-layout"><aside class="palette"><h2>Questions</h2><div class="palette-grid">%s</div><div class="palette-key"><span>● Answered</span><span>○ Unanswered</span><span>★ Review</span></div></aside><main class="question-pane"><div class="question-meta"><span>Question %d of %d</span><span>%s · %s</span></div><article class="question-content">%s</article><div id="answer-control" class="answers">%s</div><div class="question-tools"><label><input id="flag-input" type="checkbox"%s> Mark for review</label><span id="save-state" aria-live="polite">Saved</span></div><nav class="question-nav">%s%s</nav></main></div></div><script src="/static/test.js" defer></script>|}
+                    {|<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>%s · SAT Revision</title><link rel="stylesheet" href="/static/main.css"></head>
+<body><div id="test-app" data-attempt-id="%d" data-module-id="%d" data-question-id="%d" data-deadline="%Ld" data-csrf="%s" data-results-url="/attempts/%d/results"><header class="test-header"><a class="brand" href="/attempts/%d"><span>SAT</span> Revision</a><strong>%s</strong><div id="timer" class="timer">--:--</div></header><div class="test-layout"><aside class="palette"><h2>Questions</h2><div class="palette-grid">%s</div><div class="palette-key"><span>● Answered</span><span>○ Unanswered</span><span>★ Review</span></div></aside><main class="question-pane"><div class="question-meta"><span>Question %d of %d</span><span>%s · %s</span></div><article class="question-content">%s</article><div id="answer-control" class="answers">%s</div><div class="question-tools"><label><input id="flag-input" type="checkbox"%s> Mark for review</label><span id="save-state" aria-live="polite">Saved</span></div><nav class="question-nav">%s%s</nav></main></div></div><script src="/static/test.js" defer></script></body></html>|}
+                    (escape (module_label module_.kind))
                     attempt_id module_.id assigned.id deadline (escape session.csrf_token) attempt_id attempt_id
                     (escape (module_label module_.kind)) (palette_html attempt_id module_.id position states)
                     position module_.question_count (escape assigned.domain_name) (escape (difficulty_label assigned.difficulty))

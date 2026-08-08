@@ -106,6 +106,9 @@ module Q = struct
     (t2 int int ->? t5 int string string int64 (option int64))
       "SELECT id, status, selected_modules, created_at, completed_at FROM attempts WHERE id=? AND user_id=?"
 
+  let delete_attempt =
+    (t2 int int ->. unit) "DELETE FROM attempts WHERE id=? AND user_id=?"
+
   let attempt_modules =
     (int ->* t10 int string int int string int (option int64) (option int64)
        (option int64) int)
@@ -460,6 +463,11 @@ let get_attempt db ~user_id attempt_id =
       Db.find_opt Q.owned_attempt (attempt_id, user_id)
       >|= Result.map (Option.map (fun (id, status, selected_modules, created_at, completed_at) ->
               { id; status; selected_modules; created_at; completed_at })))
+
+let delete_attempt db ~user_id attempt_id =
+  with_connection db (fun connection ->
+      let (module Db : Caqti_lwt.CONNECTION) = connection in
+      Db.exec Q.delete_attempt (attempt_id, user_id))
 
 let module_of_row attempt_id
     (id, module_code, _sequence, duration_seconds, status, relaxed, started_at,

@@ -4,24 +4,27 @@ module String_set = Set.Make (String)
 
 type quota = {
   domain_code : string;
+  easy : int;
   medium : int;
   hard : int;
 }
 
+(* Mirrors the real digital SAT's balanced difficulty mix: roughly one third
+   easy, one third medium, one third hard per module. *)
 let reading_writing_quotas =
   [
-    { domain_code = "CAS"; medium = 2; hard = 6 };
-    { domain_code = "INI"; medium = 1; hard = 6 };
-    { domain_code = "SEC"; medium = 1; hard = 6 };
-    { domain_code = "EOI"; medium = 1; hard = 4 };
+    { domain_code = "CAS"; easy = 3; medium = 3; hard = 2 };
+    { domain_code = "INI"; easy = 2; medium = 3; hard = 2 };
+    { domain_code = "SEC"; easy = 2; medium = 2; hard = 3 };
+    { domain_code = "EOI"; easy = 2; medium = 1; hard = 2 };
   ]
 
 let math_quotas =
   [
-    { domain_code = "H"; medium = 1; hard = 7 };
-    { domain_code = "P"; medium = 1; hard = 7 };
-    { domain_code = "Q"; medium = 1; hard = 2 };
-    { domain_code = "S"; medium = 1; hard = 2 };
+    { domain_code = "H"; easy = 3; medium = 3; hard = 2 };
+    { domain_code = "P"; easy = 2; medium = 3; hard = 3 };
+    { domain_code = "Q"; easy = 1; medium = 1; hard = 1 };
+    { domain_code = "S"; easy = 1; medium = 1; hard = 1 };
   ]
 
 let shuffle state values =
@@ -68,8 +71,7 @@ let pick_fallback state ~used (questions : question_metadata list) ~section ~dom
     |> List.filter (fun (question : question_metadata) ->
            not (String_set.mem question.external_id used)
            && question.section = section
-           && String.equal question.domain_code domain_code
-           && question.difficulty <> Easy)
+           && String.equal question.domain_code domain_code)
     |> shuffle state
   in
   let selected_domain, _ = take count same_domain in
@@ -86,14 +88,8 @@ let pick_fallback state ~used (questions : question_metadata list) ~section ~dom
       questions
       |> List.filter (fun (question : question_metadata) ->
              not (String_set.mem question.external_id used)
-             && question.section = section
-             && question.difficulty <> Easy)
+             && question.section = section)
       |> shuffle state
-      |> List.stable_sort (fun a b ->
-             match (a.difficulty, b.difficulty) with
-             | Hard, Medium -> -1
-             | Medium, Hard -> 1
-             | _ -> 0)
     in
     let selected_anywhere, _ = take remaining anywhere in
     let used =
@@ -194,7 +190,7 @@ let generate_module state ~used ~eligible kind =
           selected := picked @ !selected;
           used := next_used;
           if deficit > 0 then deficits := (quota.domain_code, deficit) :: !deficits)
-        [ (Medium, quota.medium); (Hard, quota.hard) ])
+        [ (Easy, quota.easy); (Medium, quota.medium); (Hard, quota.hard) ])
     quotas;
   let relaxed = !deficits <> [] in
   List.iter
@@ -209,7 +205,7 @@ let generate_module state ~used ~eligible kind =
   if List.length !selected <> expected then
     Error
       (Printf.sprintf
-         "Only %d eligible medium/hard questions remain for %s; %d are required."
+         "Only %d eligible questions remain for %s; %d are required."
          (List.length !selected) (module_label kind) expected)
   else
     let final_questions, final_used =

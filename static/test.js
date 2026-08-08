@@ -48,7 +48,47 @@
 
   const spr = document.querySelector('#answer-input');
   if (spr) {
+    const preview = document.querySelector('#spr-preview');
+    let typesetQueue = Promise.resolve();
+
+    const mathEl = (tag, text) => {
+      const el = document.createElementNS('http://www.w3.org/1998/Math/MathML', tag);
+      if (text !== undefined) el.textContent = text;
+      return el;
+    };
+
+    const buildPreviewMath = (value) => {
+      const math = mathEl('math');
+      const normalized = value.replace(/[\s,]/g, '').replace(/−/g, '-');
+      const fraction = normalized.match(/^(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);
+      if (fraction) {
+        const mfrac = mathEl('mfrac');
+        mfrac.append(mathEl('mn', fraction[1]), mathEl('mn', fraction[2]));
+        math.appendChild(mfrac);
+      } else if (/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(normalized)) {
+        math.appendChild(mathEl('mn', normalized));
+      } else {
+        math.appendChild(mathEl('mtext', value));
+      }
+      return math;
+    };
+
+    const renderPreview = () => {
+      if (!preview) return;
+      preview.textContent = '';
+      if (!spr.value.trim()) return;
+      preview.appendChild(buildPreviewMath(spr.value.trim()));
+      typesetQueue = typesetQueue.then(() => {
+        if (window.MathJax && MathJax.startup) {
+          return MathJax.startup.promise
+            .then(() => MathJax.typesetPromise([preview]))
+            .catch(() => {});
+        }
+      });
+    };
+
     spr.addEventListener('input', () => {
+      renderPreview();
       clearTimeout(debounce);
       debounce = setTimeout(() => save({answer: spr.value}), 450);
     });
@@ -56,6 +96,7 @@
       clearTimeout(debounce);
       save({answer: spr.value});
     });
+    renderPreview();
   }
 
   const flag = document.querySelector('#flag-input');

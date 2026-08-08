@@ -125,6 +125,10 @@ let module_order = function
   | Math_1 -> 3
   | Math_2 -> 4
 
+(* The real digital SAT has a 10-minute break between the Reading & Writing
+   and Math sections. *)
+let break_seconds = 10 * 60
+
 let item_type_to_string = function
   | Multiple_choice -> "mcq"
   | Student_response -> "spr"

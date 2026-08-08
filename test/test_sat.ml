@@ -43,16 +43,28 @@ let fixture_pool () =
 
 let test_sanitize () =
   let dirty =
-    {|<div onclick="steal()"><script>alert(1)</script><p style="color:red;text-align:center">Safe</p><a href="javascript:alert(1)">link</a><math><mfrac><mn>1</mn><mn>2</mn></mfrac></math><svg onload="bad()" viewBox="0 0 10 10"><foreignObject><script>x</script></foreignObject><path d="M0 0L1 1"/></svg><img src="https://evil.example/x" onerror="bad()"></div>|}
+    {|<div onclick="steal()"><script>alert(1)</script><p style="color:red;text-align:center">Safe</p><a href="javascript:alert(1)">link</a><math><mfrac><mn>1</mn><mn>2</mn></mfrac></math><svg onload="bad()" viewBox="0 0 10 10"><defs><clipPath id="clip1"><rect width="4" height="4"/></clipPath></defs><foreignObject><script>x</script></foreignObject><path d="M0 0L1 1" clip-path="url(#clip1)" style="fill:none;stroke:#000000;stroke-width:0.7;stroke-dasharray:3, 2;clip-path:url(#clip1)"/><circle cx="1" cy="1" r="1" style="fill:url(https://evil.example/x);fill-opacity:0.5;behavior:url(x)"/><use xlink:href="#glyph-1"/><use href="#glyph-2"/><use xlink:href="https://evil.example/x.svg#a"/></svg><img src="https://evil.example/x" onerror="bad()"></div>|}
   in
   let clean = Sanitize.fragment dirty in
   Alcotest.(check bool) "safe text retained" true (contains clean "Safe");
   Alcotest.(check bool) "MathML retained" true (contains clean "mfrac");
   Alcotest.(check bool) "safe SVG retained" true (contains clean "<path");
   Alcotest.(check bool) "safe style retained" true (contains clean "text-align: center");
+  Alcotest.(check bool) "SVG fill retained" true (contains clean "fill: none");
+  Alcotest.(check bool) "SVG stroke retained" true (contains clean "stroke: #000000");
+  Alcotest.(check bool) "SVG dasharray retained" true (contains clean "stroke-dasharray: 3, 2");
+  Alcotest.(check bool) "SVG opacity retained" true (contains clean "fill-opacity: 0.5");
+  Alcotest.(check bool) "SVG clip-path style retained" true (contains clean "clip-path: url(#clip1)");
+  Alcotest.(check bool) "SVG clip-path attribute retained" true (contains clean {|clip-path="url(#clip1)"|});
+  Alcotest.(check bool) "clipPath retained" true (contains (String.lowercase_ascii clean) "clippath");
+  Alcotest.(check bool) "use glyph retained" true (contains clean "<use");
+  Alcotest.(check bool) "xlink fragment retained" true (contains clean {|href="#glyph-1"|});
+  Alcotest.(check bool) "href fragment retained" true (contains clean {|href="#glyph-2"|});
   check_not_contains "scripts removed" "script" clean;
   check_not_contains "events removed" "onclick" clean;
   check_not_contains "SVG events removed" "onload" clean;
+  check_not_contains "paint url removed" "url(https" clean;
+  check_not_contains "unknown style property removed" "behavior" clean;
   check_not_contains "unsafe external image removed" "evil.example" clean;
   check_not_contains "unsafe href removed" "javascript:" clean;
   check_not_contains "foreignObject removed" "foreignobject" clean
@@ -95,7 +107,7 @@ let unique_ids assignments =
   |> List.sort_uniq String.compare
   |> List.length
 
-let test_generator_hard_heavy () =
+let test_generator_balanced_mix () =
   let eligible = fixture_pool () in
   for seed = 1 to 100 do
     match Generator.generate ~seed ~eligible all_modules with
@@ -107,14 +119,15 @@ let test_generator_hard_heavy () =
           (fun assignment ->
             let expected = module_question_count assignment.kind in
             Alcotest.(check int) "module length" expected (List.length assignment.questions);
-            Alcotest.(check int) "no easy questions" 0 (count_difficulty Easy assignment.questions);
             match module_section assignment.kind with
             | Reading_writing ->
-                Alcotest.(check int) "RW medium" 5 (count_difficulty Medium assignment.questions);
-                Alcotest.(check int) "RW hard" 22 (count_difficulty Hard assignment.questions)
+                Alcotest.(check int) "RW easy" 9 (count_difficulty Easy assignment.questions);
+                Alcotest.(check int) "RW medium" 9 (count_difficulty Medium assignment.questions);
+                Alcotest.(check int) "RW hard" 9 (count_difficulty Hard assignment.questions)
             | Math ->
-                Alcotest.(check int) "Math medium" 4 (count_difficulty Medium assignment.questions);
-                Alcotest.(check int) "Math hard" 18 (count_difficulty Hard assignment.questions))
+                Alcotest.(check int) "Math easy" 7 (count_difficulty Easy assignment.questions);
+                Alcotest.(check int) "Math medium" 8 (count_difficulty Medium assignment.questions);
+                Alcotest.(check int) "Math hard" 7 (count_difficulty Hard assignment.questions))
           assignments
   done
 
@@ -125,7 +138,8 @@ let test_generator_fallback () =
   | Ok [ assignment ] ->
       Alcotest.(check bool) "relaxed marker" true assignment.relaxed_blueprint;
       Alcotest.(check int) "still full" 27 (List.length assignment.questions);
-      Alcotest.(check int) "still no easy" 0 (count_difficulty Easy assignment.questions)
+      Alcotest.(check bool) "stays within section" true
+        (List.for_all (fun (q : question_metadata) -> q.section = Reading_writing) assignment.questions)
   | Ok _ -> Alcotest.fail "unexpected assignment count"
 
 let test_math_student_response_preference () =
@@ -228,7 +242,7 @@ let database_test () =
 
 let application_security_test () =
   let path = Filename.temp_file "sat-app-test-" ".db" in
-  let db, attempt_id =
+  let db, attempt_id, alice_id =
     Lwt_main.run
       (Db.connect path >>= fun db ->
        Db.create_user db ~username:"route_alice" ~password_hash:"hash" >>= fun alice ->
@@ -239,7 +253,7 @@ let application_security_test () =
        let eligible = fixture_pool () in
        Db.upsert_metadata db eligible >>= fun () ->
        let assignments = match Generator.generate ~seed:91 ~eligible [ Reading_writing_1 ] with Ok value -> value | Error message -> Alcotest.fail message in
-       Db.create_attempt db ~user_id:alice.id assignments >|= fun attempt_id -> db, attempt_id)
+       Db.create_attempt db ~user_id:alice.id assignments >|= fun attempt_id -> db, attempt_id, alice.id)
   in
   let call = Dream.test (App.handler db) in
   let alice_headers = [ "Cookie", "sat_session=alice-token" ] in
@@ -254,14 +268,33 @@ let application_security_test () =
   Alcotest.(check int) "CSRF rejected" 403 (Dream.status_to_int (Dream.status rejected));
   let bob_headers = [ "Cookie", "sat_session=bob-token" ] in
   let isolated = call (Dream.request ~target:(Printf.sprintf "/attempts/%d" attempt_id) ~headers:bob_headers "") in
-  Alcotest.(check int) "cross-user route hidden" 404 (Dream.status_to_int (Dream.status isolated))
+  Alcotest.(check int) "cross-user route hidden" 404 (Dream.status_to_int (Dream.status isolated));
+  let form = ("Content-Type", "application/x-www-form-urlencoded") in
+  let delete_target = Printf.sprintf "/attempts/%d/delete" attempt_id in
+  let foreign_delete =
+    call (Dream.request ~method_:`POST ~target:delete_target ~headers:(form :: bob_headers) "csrf=bob-csrf")
+  in
+  Alcotest.(check int) "foreign delete redirects" 303 (Dream.status_to_int (Dream.status foreign_delete));
+  Alcotest.(check bool) "attempt survives foreign delete" true
+    (Option.is_some (Lwt_main.run (Db.get_attempt db ~user_id:alice_id attempt_id)));
+  let owner_delete =
+    call (Dream.request ~method_:`POST ~target:delete_target ~headers:(form :: alice_headers) "csrf=alice-csrf")
+  in
+  Alcotest.(check int) "owner delete redirects" 303 (Dream.status_to_int (Dream.status owner_delete));
+  let deleted, modules_gone =
+    Lwt_main.run
+      (Db.get_attempt db ~user_id:alice_id attempt_id >>= fun attempt ->
+       Db.get_attempt_modules db attempt_id >|= fun modules -> attempt, modules)
+  in
+  Alcotest.(check bool) "attempt deleted" true (Option.is_none deleted);
+  Alcotest.(check int) "cascade removes modules" 0 (List.length modules_gone)
 
 let () =
   Alcotest.run "SAT revision"
     [
       ("sanitization", [ Alcotest.test_case "malicious HTML, MathML and SVG" `Quick test_sanitize ]);
       ("upstream JSON", [ Alcotest.test_case "metadata" `Quick test_metadata_parsing; Alcotest.test_case "detail" `Quick test_detail_parsing ]);
-      ("generator", [ Alcotest.test_case "hard-heavy quota properties" `Quick test_generator_hard_heavy; Alcotest.test_case "quota fallback" `Quick test_generator_fallback; Alcotest.test_case "Math student response preference" `Quick test_math_student_response_preference ]);
+      ("generator", [ Alcotest.test_case "balanced quota properties" `Quick test_generator_balanced_mix; Alcotest.test_case "quota fallback" `Quick test_generator_fallback; Alcotest.test_case "Math student response preference" `Quick test_math_student_response_preference ]);
       ("grading", [ Alcotest.test_case "answer normalization" `Quick test_answers ]);
       ("scoring", [ Alcotest.test_case "all table boundaries" `Quick test_scoring ]);
       ("security", [ Alcotest.test_case "Argon2id" `Slow test_passwords ]);

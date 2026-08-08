@@ -40,7 +40,7 @@ let status_label = function
   | "submitted" -> "Submitted"
   | value -> value
 
-let layout ?user ?(title = "SAT Revision") ?notice content =
+let layout ?user ?(title = "SAT Revision") ?notice ?(scripts = []) content =
   let user_nav =
     match user with
     | None ->
@@ -51,13 +51,18 @@ let layout ?user ?(title = "SAT Revision") ?notice content =
           (escape session.user.username) (escape session.csrf_token)
   in
   let notice = match notice with None -> "" | Some message -> Printf.sprintf {|<div class="notice">%s</div>|} (escape message) in
+  let scripts =
+    scripts
+    |> List.map (fun src -> Printf.sprintf {|<script src="%s" defer></script>|} (escape src))
+    |> String.concat ""
+  in
   Printf.sprintf
     {|<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>%s · SAT Revision</title><link rel="stylesheet" href="/static/main.css"></head>
 <body><header class="site-header"><a class="brand" href="/"><span>SAT</span> Revision</a><nav>%s</nav></header>
-<main class="page">%s%s</main><footer>Private local study tool · Not affiliated with College Board</footer></body></html>|}
-    (escape title) user_nav notice content
+<main class="page">%s%s</main><footer>Private local study tool · Not affiliated with College Board</footer>%s</body></html>|}
+    (escape title) user_nav notice content scripts
 
 let security_headers handler request =
   handler request >|= fun response ->
@@ -222,17 +227,18 @@ let dashboard db session request =
     attempts
     |> List.map (fun (attempt : Db.attempt_summary) ->
            Printf.sprintf
-             {|<a class="attempt-row" href="/attempts/%d"><span><strong>Practice set #%d</strong><small>%s · %s</small></span><span class="status status-%s">%s</span></a>|}
+             {|<div class="attempt-item"><a class="attempt-row" href="/attempts/%d"><span><strong>Practice set #%d</strong><small>%s · %s</small></span><span class="status status-%s">%s</span></a><form action="/attempts/%d/delete" method="post" data-delete-label="practice set #%d"><input type="hidden" name="csrf" value="%s"><button class="delete-button" type="submit" title="Delete practice set #%d" aria-label="Delete practice set #%d">×</button></form></div>|}
              attempt.id attempt.id (escape attempt.selected_modules)
              (format_time attempt.created_at) (escape attempt.status)
-             (escape (status_label attempt.status)))
+             (escape (status_label attempt.status)) attempt.id attempt.id
+             (escape session.Db.csrf_token) attempt.id attempt.id)
     |> String.concat ""
   in
   let rows = if rows = "" then {|<div class="empty"><h3>No practice sets yet</h3><p>Generate one to start building your progress history.</p></div>|} else rows in
   Dream.html
-    (layout ~user:session ~title:"Dashboard"
+    (layout ~user:session ~title:"Dashboard" ~scripts:[ "/static/confirm-delete.js" ]
        (Printf.sprintf
-          {|<section class="hero"><div><p class="eyebrow">YOUR REVISION DESK</p><h1>Train on the questions that still challenge you.</h1><p>Correct answers retire permanently. Wrong and skipped questions stay in the pool.</p></div><a class="button" href="/attempts/new">Generate a test set</a></section><section class="stats-strip"><div><strong>80%%</strong><span>hard questions</span></div><div><strong>20%%</strong><span>medium questions</span></div><div><strong>0</strong><span>completed repeats</span></div></section><section><div class="section-heading"><h2>Practice history</h2></div><div class="attempt-list">%s</div></section>|}
+          {|<section class="hero"><div><p class="eyebrow">YOUR REVISION DESK</p><h1>Train on the questions that still challenge you.</h1><p>Correct answers retire permanently. Wrong and skipped questions stay in the pool.</p></div><a class="button" href="/attempts/new">Generate a test set</a></section><section class="stats-strip"><div><strong>⅓</strong><span>easy questions</span></div><div><strong>⅓</strong><span>medium questions</span></div><div><strong>⅓</strong><span>hard questions</span></div></section><section><div class="section-heading"><h2>Practice history</h2></div><div class="attempt-list">%s</div></section>|}
           rows))
 
 let new_attempt_page session =
@@ -248,7 +254,7 @@ let new_attempt_page session =
   in
   layout ~user:session ~title:"New practice set"
     (Printf.sprintf
-       {|<section class="narrow"><a class="back" href="/">← Dashboard</a><p class="eyebrow">BUILD A PRACTICE SET</p><h1>Choose exactly what you want to train.</h1><p class="lede">Every module uses a hard-heavy blueprint: about 80%% hard and 20%% medium, with no easy questions.</p><form class="stack" action="/attempts" method="post"><input type="hidden" name="csrf" value="%s"><div class="module-grid">%s</div><button class="button" type="submit">Generate selected modules</button></form></section>|}
+       {|<section class="narrow"><a class="back" href="/">← Dashboard</a><p class="eyebrow">BUILD A PRACTICE SET</p><h1>Choose exactly what you want to train.</h1><p class="lede">Modules mirror the real digital SAT: a balanced mix of easy, medium and hard questions, the official time limits, and a 10-minute break between the Reading &amp; Writing and Math sections.</p><form class="stack" action="/attempts" method="post"><input type="hidden" name="csrf" value="%s"><div class="module-grid">%s</div><button class="button" type="submit">Generate selected modules</button></form></section>|}
        (escape session.Db.csrf_token) cards)
 
 let create_attempt db session request =
@@ -273,6 +279,28 @@ let module_action module_ =
   | "submitted" -> "Completed"
   | _ -> "Open"
 
+(* When [kind] belongs to the Math section and the attempt already has a
+   submitted Reading & Writing module, returns the moment the 10-minute break
+   ends (like the real digital SAT), if it is still running. *)
+let break_until (modules : Db.attempt_module list) kind =
+  match module_section kind with
+  | Reading_writing -> None
+  | Math ->
+      let latest_submitted =
+        List.fold_left
+          (fun latest (module_ : Db.attempt_module) ->
+            match module_section module_.kind, module_.status, module_.submitted_at with
+            | Reading_writing, "submitted", Some timestamp
+              when Int64.compare timestamp latest > 0 ->
+                timestamp
+            | _ -> latest)
+          0L modules
+      in
+      if Int64.compare latest_submitted 0L = 0 then None
+      else
+        let until = Int64.add latest_submitted (Int64.of_int break_seconds) in
+        if Int64.compare (Db.now ()) until < 0 then Some until else None
+
 let attempt_page db session request =
   match int_param request "attempt_id" with
   | None -> not_found ()
@@ -281,6 +309,7 @@ let attempt_page db session request =
       | None -> not_found ()
       | Some attempt ->
           Db.get_attempt_modules db attempt_id >>= fun modules ->
+          let break_active = ref false in
           let cards =
             modules
             |> List.map (fun (module_ : Db.attempt_module) ->
@@ -290,10 +319,16 @@ let attempt_page db session request =
                      | "submitted" -> {|<span class="complete-mark">✓ Submitted</span>|}
                      | "active" -> Printf.sprintf {|<a class="button button-small" href="/attempts/%d/modules/%d/take?question=1">%s</a>|} attempt_id module_.id action
                      | "grading_pending" -> Printf.sprintf {|<form action="/attempts/%d/modules/%d/submit" method="post"><input type="hidden" name="csrf" value="%s"><button class="button button-small" type="submit">%s</button></form>|} attempt_id module_.id (escape session.csrf_token) action
-                     | _ -> Printf.sprintf {|<form action="/attempts/%d/modules/%d/start" method="post"><input type="hidden" name="csrf" value="%s"><button class="button button-small" type="submit">%s</button></form>|} attempt_id module_.id (escape session.csrf_token) action
+                     | _ ->
+                         (match break_until modules module_.kind with
+                          | Some until ->
+                              break_active := true;
+                              Printf.sprintf {|<span class="break-countdown" data-break-until="%Ld">Break in progress</span>|} until
+                          | None ->
+                              Printf.sprintf {|<form action="/attempts/%d/modules/%d/start" method="post"><input type="hidden" name="csrf" value="%s"><button class="button button-small" type="submit">%s</button></form>|} attempt_id module_.id (escape session.csrf_token) action)
                    in
                    Printf.sprintf {|<article class="module-summary"><div><p class="eyebrow">%s</p><h3>%s</h3><p>%d questions · %d minutes</p></div><div class="module-action"><span class="status status-%s">%s</span>%s</div></article>|}
-                     (if module_.relaxed_blueprint then "RELAXED BLUEPRINT" else "HARD-HEAVY BLUEPRINT")
+                     (if module_.relaxed_blueprint then "RELAXED BLUEPRINT" else "SAT BLUEPRINT")
                      (escape (module_label module_.kind)) module_.question_count
                      (module_.duration_seconds / 60) (escape module_.status)
                      (escape (status_label module_.status)) button)
@@ -305,7 +340,8 @@ let attempt_page db session request =
             else ""
           in
           Dream.html (layout ~user:session ~title:(Printf.sprintf "Practice set #%d" attempt_id)
-            (Printf.sprintf {|<section class="narrow wide"><a class="back" href="/">← Dashboard</a><div class="section-heading"><div><p class="eyebrow">PRACTICE SET #%d</p><h1>Your selected modules</h1><p>Breaks between modules are untimed. Once started, a module's clock does not pause.</p></div>%s</div><div class="module-list">%s</div></section>|} attempt_id result_link cards))
+            ~scripts:("/static/confirm-delete.js" :: (if !break_active then [ "/static/break.js" ] else []))
+            (Printf.sprintf {|<section class="narrow wide"><a class="back" href="/">← Dashboard</a><div class="section-heading"><div><p class="eyebrow">PRACTICE SET #%d</p><h1>Your selected modules</h1><p>A 10-minute break separates the Reading &amp; Writing and Math sections, just like test day. Once started, a module's clock does not pause.</p></div>%s</div><div class="module-list">%s</div><form class="delete-attempt" action="/attempts/%d/delete" method="post" data-delete-label="practice set #%d"><input type="hidden" name="csrf" value="%s"><button class="link-button danger" type="submit">Delete this practice set</button></form></section>|} attempt_id result_link cards attempt_id attempt_id (escape session.csrf_token)))
 
 let owned_module db session request =
   match int_param request "attempt_id", int_param request "module_id" with
@@ -320,8 +356,22 @@ let start_module db session request =
       owned_module db session request >>= (function
         | None -> not_found ()
         | Some (attempt_id, module_) ->
-            Db.start_module db module_ >>= fun module_ ->
-            Dream.redirect request (Printf.sprintf "/attempts/%d/modules/%d/take?question=1" attempt_id module_.id))
+            Db.get_attempt_modules db attempt_id >>= (fun modules ->
+            match break_until modules module_.Db.kind with
+            | Some _ -> Dream.redirect request (Printf.sprintf "/attempts/%d" attempt_id)
+            | None ->
+                Db.start_module db module_ >>= fun module_ ->
+                Dream.redirect request (Printf.sprintf "/attempts/%d/modules/%d/take?question=1" attempt_id module_.id)))
+  | _ -> Dream.empty `Forbidden
+
+let delete_attempt db session request =
+  form_fields request >>= function
+  | Ok fields when valid_csrf session request fields ->
+      (match int_param request "attempt_id" with
+       | None -> not_found ()
+       | Some attempt_id ->
+           Db.delete_attempt db ~user_id:session.Db.user.id attempt_id >>= fun () ->
+           Dream.redirect request "/")
   | _ -> Dream.empty `Forbidden
 
 let json_assoc json name = match json with `Assoc fields -> List.assoc_opt name fields | _ -> None
@@ -391,7 +441,7 @@ let deadline_expired module_ =
 let answer_control (assigned : Db.assigned_question) (detail : question_detail) =
   match detail.item_type with
   | Student_response ->
-      Printf.sprintf {|<label class="spr-label">Your answer<input id="answer-input" class="spr-input" autocomplete="off" inputmode="decimal" value="%s"></label>|}
+      Printf.sprintf {|<label class="spr-label">Your answer<input id="answer-input" class="spr-input" autocomplete="off" inputmode="decimal" value="%s"></label><div id="spr-preview" class="spr-preview" aria-live="polite"></div>|}
         (escape (Option.value ~default:"" assigned.answer))
   | Multiple_choice ->
       detail.answer_options
@@ -441,7 +491,7 @@ let take_module db session request =
                     {|<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>%s · SAT Revision</title><link rel="stylesheet" href="/static/main.css"></head>
-<body><div id="test-app" data-attempt-id="%d" data-module-id="%d" data-question-id="%d" data-deadline="%Ld" data-csrf="%s" data-results-url="/attempts/%d/results"><header class="test-header"><a class="brand" href="/attempts/%d"><span>SAT</span> Revision</a><strong>%s</strong><div id="timer" class="timer">--:--</div></header><div class="test-layout"><aside class="palette"><h2>Questions</h2><div class="palette-grid">%s</div><div class="palette-key"><span>● Answered</span><span>○ Unanswered</span><span>★ Review</span></div></aside><main class="question-pane"><div class="question-meta"><span>Question %d of %d</span><span>%s · %s</span></div><article class="question-content">%s</article><div id="answer-control" class="answers">%s</div><div class="question-tools"><label><input id="flag-input" type="checkbox"%s> Mark for review</label><span id="save-state" aria-live="polite">Saved</span></div><nav class="question-nav">%s%s</nav></main></div></div><script src="/static/test.js" defer></script></body></html>|}
+<body><div id="test-app" data-attempt-id="%d" data-module-id="%d" data-question-id="%d" data-deadline="%Ld" data-csrf="%s" data-results-url="/attempts/%d/results"><header class="test-header"><a class="brand" href="/attempts/%d"><span>SAT</span> Revision</a><div id="timer" class="timer">--:--</div><strong>%s</strong></header><div class="test-layout"><aside class="palette"><h2>Questions</h2><div class="palette-grid">%s</div><div class="palette-key"><span>● Answered</span><span>○ Unanswered</span><span>★ Review</span></div></aside><main class="question-pane"><div class="question-meta"><span>Question %d of %d</span><span>%s · %s</span></div><article class="question-content">%s</article><div id="answer-control" class="answers">%s</div><div class="question-tools"><label><input id="flag-input" type="checkbox"%s> Mark for review</label><span id="save-state" aria-live="polite">Saved</span></div><nav class="question-nav">%s%s</nav></main></div></div><script src="/static/mathjax.js" defer></script><script src="/static/test.js" defer></script></body></html>|}
                     (escape (module_label module_.kind))
                     attempt_id module_.id assigned.id deadline (escape session.csrf_token) attempt_id attempt_id
                     (escape (module_label module_.kind)) (palette_html attempt_id module_.id position states)
@@ -559,7 +609,7 @@ let review_page db session request =
                   in
                   let previous = if index > 1 then Printf.sprintf {|<a class="button button-secondary" href="/attempts/%d/review?item=%d">Previous</a>|} attempt_id (index-1) else {|<span></span>|} in
                   let next = if index < List.length questions then Printf.sprintf {|<a class="button" href="/attempts/%d/review?item=%d">Next mistake</a>|} attempt_id (index+1) else Printf.sprintf {|<a class="button" href="/attempts/%d/results">Done</a>|} attempt_id in
-                  Dream.html (layout ~user:session ~title:"Review mistakes"
+                  Dream.html (layout ~user:session ~title:"Review mistakes" ~scripts:[ "/static/mathjax.js" ]
                     (Printf.sprintf {|<section class="narrow"><a class="back" href="/attempts/%d/results">← Results</a><div class="question-meta"><span>Mistake %d of %d · %s</span><span>%s · %s</span></div><article class="card review-card"><div class="question-content">%s%s</div><div class="review-choices">%s</div><div class="answer-comparison"><div><span>Your answer</span><strong>%s</strong></div><div class="correct"><span>Correct answer</span><strong>%s</strong></div></div><section class="rationale"><h2>Why</h2>%s</section></article><nav class="question-nav">%s%s</nav></section>|}
                       attempt_id index (List.length questions) (escape (module_label question.module_kind))
                       (escape question.domain) (escape (difficulty_label question.difficulty)) detail.stimulus detail.stem choices
@@ -603,6 +653,7 @@ let routes db =
       Dream.get "/attempts/new" (require_session (fun session _ -> Dream.html (new_attempt_page session)));
       Dream.post "/attempts" (require_session (create_attempt db));
       Dream.get "/attempts/:attempt_id" (require_session (attempt_page db));
+      Dream.post "/attempts/:attempt_id/delete" (require_session (delete_attempt db));
       Dream.post "/attempts/:attempt_id/modules/:module_id/start" (require_session (start_module db));
       Dream.get "/attempts/:attempt_id/modules/:module_id/take" (require_session (take_module db));
       Dream.post "/attempts/:attempt_id/modules/:module_id/submit" (require_session (submit_module db));

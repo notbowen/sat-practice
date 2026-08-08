@@ -2,11 +2,11 @@
 
 A private SAT practice app written in OCaml. It pulls live question content from College Board's educator question bank, stores only metadata and learner progress in SQLite, and permanently retires questions once the learner answers them correctly. Native development stays localhost-only; the production container supports private Cloudflare Tunnel ingress.
 
-The generator is deliberately hard-heavy:
+The generator mirrors the real digital SAT's structure and timing:
 
-- Reading & Writing: 22 hard and 5 medium questions per module
-- Math: 18 hard and 4 medium questions per module
-- No easy questions are selected
+- Reading & Writing: 27 questions per module in 32 minutes — 9 easy, 9 medium, 9 hard
+- Math: 22 questions per module in 35 minutes — 7 easy, 8 medium, 7 hard
+- A 10-minute break separates the Reading & Writing and Math sections
 
 The original SAT domain proportions are retained. When cached metadata identifies enough Math student-produced-response questions, the generator prefers six of them without changing a domain/difficulty quota.
 
@@ -107,6 +107,9 @@ has an active Cloudflare connection.
 
 - Select any combination of Reading & Writing 1/2 and Math 1/2.
 - Timers are enforced by server-side deadlines. Closing the browser does not pause a module, and an automatic worker locks expired modules.
+- Once a Reading & Writing module is submitted, Math modules unlock only after a 10-minute break, like the real test.
+- Question MathML is typeset by a vendored MathJax build (`static/mathjax/`), so the strict content-security-policy stays `script-src 'self'`.
+- Practice sets can be deleted from the dashboard or the set page; deletion cascades to their modules, answers, and scores.
 - Answers and review flags autosave. Correctness and rationales remain hidden until submission.
 - Correct questions become `done` and never return for that user. Wrong and skipped questions remain eligible alongside unseen questions.
 - Section estimates appear only after both modules in that section are completed. A total appears only after both complete sections. Estimates use the published SAT Practice Test 8 fixed-form score ranges and are explicitly unofficial.

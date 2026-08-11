@@ -57,7 +57,8 @@ let global_attributes = [ "aria-label"; "aria-hidden"; "role"; "alt"; "alttext" 
 let mathml_attributes =
   [
     "xmlns"; "display"; "mathvariant"; "mathsize"; "stretchy"; "fence";
-    "separator"; "columnalign"; "rowalign"; "columnspan"; "rowspan"; "notation";
+    "separator"; "open"; "close"; "separators"; "columnalign"; "rowalign";
+    "columnspan"; "rowspan"; "notation";
   ]
 
 let svg_attributes =

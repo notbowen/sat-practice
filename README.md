@@ -2,13 +2,13 @@
 
 A private SAT practice app written in OCaml. It pulls live question content from College Board's educator question bank, stores only metadata and learner progress in SQLite, and permanently retires questions once the learner answers them correctly. Native development stays localhost-only; the production container supports private Cloudflare Tunnel ingress.
 
-The generator mirrors the real digital SAT's structure and timing:
+The generator mirrors the real digital SAT's structure, timing, and higher-difficulty second-module route:
 
-- Reading & Writing: 27 questions per module in 32 minutes — 9 easy, 9 medium, 9 hard
-- Math: 22 questions per module in 35 minutes — 7 easy, 8 medium, 7 hard
+- Reading & Writing: 27 questions per module in 32 minutes — Module 1 has 9 easy, 9 medium, and 9 hard; Module 2 has 4 easy, 10 medium, and 13 hard
+- Math: 22 questions per module in 35 minutes — Module 1 has 7 easy, 8 medium, and 7 hard; Module 2 has 3 easy, 8 medium, and 11 hard
 - A 10-minute break separates the Reading & Writing and Math sections
 
-The original SAT domain proportions are retained. When cached metadata identifies enough Math student-produced-response questions, the generator prefers six of them without changing a domain/difficulty quota.
+Module 1 retains a broad routing mix, while Module 2 deliberately practices the higher route associated with access to the full 800-point section scale. College Board does not publish exact difficulty counts for that route, so these Module 2 ratios are an explicit practice approximation. The original SAT domain proportions are retained. When cached metadata identifies enough Math student-produced-response questions, the generator prefers six of them without changing a domain/difficulty quota.
 
 ## Run
 

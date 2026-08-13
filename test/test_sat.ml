@@ -110,7 +110,7 @@ let unique_ids assignments =
   |> List.sort_uniq String.compare
   |> List.length
 
-let test_generator_balanced_mix () =
+let test_generator_higher_route_mix () =
   let eligible = fixture_pool () in
   for seed = 1 to 100 do
     match Generator.generate ~seed ~eligible all_modules with
@@ -122,15 +122,23 @@ let test_generator_balanced_mix () =
           (fun assignment ->
             let expected = module_question_count assignment.kind in
             Alcotest.(check int) "module length" expected (List.length assignment.questions);
-            match module_section assignment.kind with
-            | Reading_writing ->
+            match assignment.kind with
+            | Reading_writing_1 ->
                 Alcotest.(check int) "RW easy" 9 (count_difficulty Easy assignment.questions);
                 Alcotest.(check int) "RW medium" 9 (count_difficulty Medium assignment.questions);
                 Alcotest.(check int) "RW hard" 9 (count_difficulty Hard assignment.questions)
-            | Math ->
+            | Reading_writing_2 ->
+                Alcotest.(check int) "RW higher-route easy" 4 (count_difficulty Easy assignment.questions);
+                Alcotest.(check int) "RW higher-route medium" 10 (count_difficulty Medium assignment.questions);
+                Alcotest.(check int) "RW higher-route hard" 13 (count_difficulty Hard assignment.questions)
+            | Math_1 ->
                 Alcotest.(check int) "Math easy" 7 (count_difficulty Easy assignment.questions);
                 Alcotest.(check int) "Math medium" 8 (count_difficulty Medium assignment.questions);
-                Alcotest.(check int) "Math hard" 7 (count_difficulty Hard assignment.questions))
+                Alcotest.(check int) "Math hard" 7 (count_difficulty Hard assignment.questions)
+            | Math_2 ->
+                Alcotest.(check int) "Math higher-route easy" 3 (count_difficulty Easy assignment.questions);
+                Alcotest.(check int) "Math higher-route medium" 8 (count_difficulty Medium assignment.questions);
+                Alcotest.(check int) "Math higher-route hard" 11 (count_difficulty Hard assignment.questions))
           assignments
   done
 
@@ -163,8 +171,11 @@ let test_math_student_response_preference () =
 let test_answers () =
   Alcotest.(check string) "whitespace and commas" "1234" (Score.normalize_answer " 1, 2 3\t4 \n");
   Alcotest.(check string) "unicode minus" "-7/2" (Score.normalize_answer "−7 / 2");
+  Alcotest.(check string) "leading decimal zero" "0.88" (Score.normalize_answer ".88");
   Alcotest.(check bool) "MCQ correct" true (Score.is_correct ~submitted:"b" ~accepted:["B"]);
   Alcotest.(check bool) "SPR variant" true (Score.is_correct ~submitted:" 1,250 " ~accepted:["1250"; "1.25e3"]);
+  Alcotest.(check bool) "omitted leading zero" true (Score.is_correct ~submitted:"0.88" ~accepted:[".88"]);
+  Alcotest.(check bool) "negative omitted leading zero" true (Score.is_correct ~submitted:"-.88" ~accepted:["-0.88"]);
   Alcotest.(check bool) "blank wrong" false (Score.is_correct ~submitted:"  " ~accepted:[""]);
   Alcotest.(check bool) "no float tolerance" false (Score.is_correct ~submitted:"0.333" ~accepted:["1/3"])
 
@@ -297,7 +308,7 @@ let () =
     [
       ("sanitization", [ Alcotest.test_case "malicious HTML, MathML and SVG" `Quick test_sanitize ]);
       ("upstream JSON", [ Alcotest.test_case "metadata" `Quick test_metadata_parsing; Alcotest.test_case "detail" `Quick test_detail_parsing ]);
-      ("generator", [ Alcotest.test_case "balanced quota properties" `Quick test_generator_balanced_mix; Alcotest.test_case "quota fallback" `Quick test_generator_fallback; Alcotest.test_case "Math student response preference" `Quick test_math_student_response_preference ]);
+      ("generator", [ Alcotest.test_case "routing and higher-route quota properties" `Quick test_generator_higher_route_mix; Alcotest.test_case "quota fallback" `Quick test_generator_fallback; Alcotest.test_case "Math student response preference" `Quick test_math_student_response_preference ]);
       ("grading", [ Alcotest.test_case "answer normalization" `Quick test_answers ]);
       ("scoring", [ Alcotest.test_case "all table boundaries" `Quick test_scoring ]);
       ("security", [ Alcotest.test_case "Argon2id" `Slow test_passwords ]);

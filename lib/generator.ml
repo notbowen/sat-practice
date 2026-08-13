@@ -9,9 +9,10 @@ type quota = {
   hard : int;
 }
 
-(* Mirrors the real digital SAT's balanced difficulty mix: roughly one third
-   easy, one third medium, one third hard per module. *)
-let reading_writing_quotas =
+(* Module 1 is the broad routing mix. Module 2 models the higher-difficulty
+   route: it retains every domain and a mix of all three difficulty levels,
+   while replacing most easy questions with medium and hard questions. *)
+let reading_writing_module_1_quotas =
   [
     { domain_code = "CAS"; easy = 3; medium = 3; hard = 2 };
     { domain_code = "INI"; easy = 2; medium = 3; hard = 2 };
@@ -19,12 +20,28 @@ let reading_writing_quotas =
     { domain_code = "EOI"; easy = 2; medium = 1; hard = 2 };
   ]
 
-let math_quotas =
+let reading_writing_module_2_quotas =
+  [
+    { domain_code = "CAS"; easy = 1; medium = 3; hard = 4 };
+    { domain_code = "INI"; easy = 1; medium = 3; hard = 3 };
+    { domain_code = "SEC"; easy = 1; medium = 2; hard = 4 };
+    { domain_code = "EOI"; easy = 1; medium = 2; hard = 2 };
+  ]
+
+let math_module_1_quotas =
   [
     { domain_code = "H"; easy = 3; medium = 3; hard = 2 };
     { domain_code = "P"; easy = 2; medium = 3; hard = 3 };
     { domain_code = "Q"; easy = 1; medium = 1; hard = 1 };
     { domain_code = "S"; easy = 1; medium = 1; hard = 1 };
+  ]
+
+let math_module_2_quotas =
+  [
+    { domain_code = "H"; easy = 1; medium = 3; hard = 4 };
+    { domain_code = "P"; easy = 1; medium = 3; hard = 4 };
+    { domain_code = "Q"; easy = 1; medium = 1; hard = 1 };
+    { domain_code = "S"; easy = 0; medium = 1; hard = 2 };
   ]
 
 let shuffle state values =
@@ -173,9 +190,11 @@ let order_questions state kind (questions : question_metadata list) =
 let generate_module state ~used ~eligible kind =
   let section = module_section kind in
   let quotas =
-    match section with
-    | Reading_writing -> reading_writing_quotas
-    | Math -> math_quotas
+    match kind with
+    | Reading_writing_1 -> reading_writing_module_1_quotas
+    | Reading_writing_2 -> reading_writing_module_2_quotas
+    | Math_1 -> math_module_1_quotas
+    | Math_2 -> math_module_2_quotas
   in
   let selected = ref [] in
   let used = ref used in

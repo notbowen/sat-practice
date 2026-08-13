@@ -238,7 +238,7 @@ let dashboard db session request =
   Dream.html
     (layout ~user:session ~title:"Dashboard" ~scripts:[ "/static/confirm-delete.js" ]
        (Printf.sprintf
-          {|<section class="hero"><div><p class="eyebrow">YOUR REVISION DESK</p><h1>Train on the questions that still challenge you.</h1><p>Correct answers retire permanently. Wrong and skipped questions stay in the pool.</p></div><a class="button" href="/attempts/new">Generate a test set</a></section><section class="stats-strip"><div><strong>⅓</strong><span>easy questions</span></div><div><strong>⅓</strong><span>medium questions</span></div><div><strong>⅓</strong><span>hard questions</span></div></section><section><div class="section-heading"><h2>Practice history</h2></div><div class="attempt-list">%s</div></section>|}
+          {|<section class="hero"><div><p class="eyebrow">YOUR REVISION DESK</p><h1>Train on the questions that still challenge you.</h1><p>Correct answers retire permanently. Wrong and skipped questions stay in the pool.</p></div><a class="button" href="/attempts/new">Generate a test set</a></section><section class="stats-strip"><div><strong>M1</strong><span>broad routing mix</span></div><div><strong>85%%+</strong><span>medium or hard in Module 2</span></div><div><strong>800</strong><span>higher-route ceiling practice</span></div></section><section><div class="section-heading"><h2>Practice history</h2></div><div class="attempt-list">%s</div></section>|}
           rows))
 
 let new_attempt_page session =
@@ -246,15 +246,19 @@ let new_attempt_page session =
     all_modules
     |> List.map (fun kind ->
            let minutes = module_duration_seconds kind / 60 in
+           let difficulty_profile =
+             if module_number kind = 1 then "broad routing mix"
+             else "higher-difficulty mix"
+           in
            Printf.sprintf
-             {|<label class="module-card"><input type="checkbox" name="module" value="%s"><span class="checkmark"></span><span><strong>%s</strong><small>%d questions · %d minutes</small></span></label>|}
+             {|<label class="module-card"><input type="checkbox" name="module" value="%s"><span class="checkmark"></span><span><strong>%s</strong><small>%d questions · %d minutes · %s</small></span></label>|}
              (module_to_string kind) (escape (module_label kind))
-             (module_question_count kind) minutes)
+             (module_question_count kind) minutes difficulty_profile)
     |> String.concat ""
   in
   layout ~user:session ~title:"New practice set"
     (Printf.sprintf
-       {|<section class="narrow"><a class="back" href="/">← Dashboard</a><p class="eyebrow">BUILD A PRACTICE SET</p><h1>Choose exactly what you want to train.</h1><p class="lede">Modules mirror the real digital SAT: a balanced mix of easy, medium and hard questions, the official time limits, and a 10-minute break between the Reading &amp; Writing and Math sections.</p><form class="stack" action="/attempts" method="post"><input type="hidden" name="csrf" value="%s"><div class="module-grid">%s</div><button class="button" type="submit">Generate selected modules</button></form></section>|}
+       {|<section class="narrow"><a class="back" href="/">← Dashboard</a><p class="eyebrow">BUILD A PRACTICE SET</p><h1>Choose exactly what you want to train.</h1><p class="lede">Module 1 uses the SAT's broad routing mix. Module 2 models the higher-difficulty route that reaches the 800-point ceiling, with more medium and hard questions and fewer easy ones. Official time limits and the 10-minute section break are retained.</p><form class="stack" action="/attempts" method="post"><input type="hidden" name="csrf" value="%s"><div class="module-grid">%s</div><button class="button" type="submit">Generate selected modules</button></form></section>|}
        (escape session.Db.csrf_token) cards)
 
 let create_attempt db session request =

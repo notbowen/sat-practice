@@ -59,6 +59,18 @@ let total_score rw math =
   let high = rw.high + math.high in
   { low; high; estimate = rw.estimate + math.estimate }
 
+let add_leading_decimal_zero answer =
+  let length = String.length answer in
+  let is_digit_at index =
+    index < length && answer.[index] >= '0' && answer.[index] <= '9'
+  in
+  if length > 1 && answer.[0] = '.' && is_digit_at 1 then
+    "0" ^ answer
+  else if length > 2 && answer.[0] = '-' && answer.[1] = '.' && is_digit_at 2 then
+    "-0" ^ String.sub answer 1 (length - 1)
+  else
+    answer
+
 let normalize_answer answer =
   answer
   |> String.trim
@@ -67,6 +79,7 @@ let normalize_answer answer =
   |> String.of_seq
   |> String.lowercase_ascii
   |> Str.global_replace (Str.regexp_string "−") "-"
+  |> add_leading_decimal_zero
 
 let is_correct ~submitted ~accepted =
   let submitted = normalize_answer submitted in

@@ -124,8 +124,8 @@ module Q = struct
       "UPDATE attempt_modules SET status='active', started_at=?, deadline_at=? WHERE id=? AND status='pending'"
 
   let question_for_test =
-    (t3 int int int ->? t9 int string int (option string) int string string string string)
-      "SELECT aq.id, aq.external_id, aq.position, aq.answer, aq.flagged, q.domain_name, q.skill_name, q.difficulty, COALESCE(q.item_type, '') FROM attempt_questions aq JOIN questions q ON q.external_id=aq.external_id JOIN attempt_modules am ON am.id=aq.attempt_module_id JOIN attempts a ON a.id=am.attempt_id WHERE am.id=? AND aq.position=? AND a.user_id=?"
+    (t3 int int int ->? t10 int string string int (option string) int string string string string)
+      "SELECT aq.id, aq.external_id, q.question_id, aq.position, aq.answer, aq.flagged, q.domain_name, q.skill_name, q.difficulty, COALESCE(q.item_type, '') FROM attempt_questions aq JOIN questions q ON q.external_id=aq.external_id JOIN attempt_modules am ON am.id=aq.attempt_module_id JOIN attempts a ON a.id=am.attempt_id WHERE am.id=? AND aq.position=? AND a.user_id=?"
 
   let question_states =
     (t2 int int ->* t4 int int int (option string))
@@ -194,8 +194,8 @@ module Q = struct
       "SELECT q.section, q.domain_name, q.difficulty, SUM(CASE WHEN aq.is_correct=1 THEN 1 ELSE 0 END), COUNT(*) FROM attempt_questions aq JOIN questions q ON q.external_id=aq.external_id JOIN attempt_modules am ON am.id=aq.attempt_module_id WHERE am.attempt_id=? AND am.status='submitted' GROUP BY q.section, q.domain_name, q.difficulty ORDER BY q.section, q.domain_name, q.difficulty"
 
   let review_questions =
-    (t2 int int ->* t9 int string int (option string) (option int) string string string string)
-      "SELECT aq.id, aq.external_id, aq.position, aq.answer, aq.is_correct, q.domain_name, q.skill_name, q.difficulty, am.module_code FROM attempt_questions aq JOIN questions q ON q.external_id=aq.external_id JOIN attempt_modules am ON am.id=aq.attempt_module_id JOIN attempts a ON a.id=am.attempt_id WHERE a.id=? AND a.user_id=? AND am.status='submitted' AND (aq.is_correct=0 OR aq.is_correct IS NULL) ORDER BY am.sequence, aq.position"
+    (t2 int int ->* t10 int string string int (option string) (option int) string string string string)
+      "SELECT aq.id, aq.external_id, q.question_id, aq.position, aq.answer, aq.is_correct, q.domain_name, q.skill_name, q.difficulty, am.module_code FROM attempt_questions aq JOIN questions q ON q.external_id=aq.external_id JOIN attempt_modules am ON am.id=aq.attempt_module_id JOIN attempts a ON a.id=am.attempt_id WHERE a.id=? AND a.user_id=? AND am.status='submitted' AND (aq.is_correct=0 OR aq.is_correct IS NULL) ORDER BY am.sequence, aq.position"
 end
 
 type t = { connection : Caqti_lwt.connection; lock : Lwt_mutex.t }
@@ -236,6 +236,7 @@ type attempt_module = {
 type assigned_question = {
   id : int;
   external_id : string;
+  question_id : string;
   position : int;
   answer : string option;
   flagged : bool;
@@ -277,6 +278,7 @@ type breakdown_row = {
 type review_question = {
   id : int;
   external_id : string;
+  question_id : string;
   position : int;
   answer : string option;
   is_correct : bool option;
@@ -506,13 +508,14 @@ let start_module db module_ =
       >|= fun () -> { module_ with status="active"; started_at=Some started_at; deadline_at=Some deadline_at }
   | _ -> Lwt.return module_
 
-let assigned_of_tuple (id, external_id, position, answer, flagged, domain_name,
-                       skill_name, difficulty, item_type) =
+let assigned_of_tuple (id, external_id, question_id, position, answer, flagged,
+                       domain_name, skill_name, difficulty, item_type) =
   match difficulty_of_string difficulty with
   | None -> None
   | Some difficulty ->
-      Some { id; external_id; position; answer; flagged=flagged<>0; domain_name;
-             skill_name; difficulty; item_type=item_type_of_string item_type }
+      Some { id; external_id; question_id; position; answer; flagged=flagged<>0;
+             domain_name; skill_name; difficulty;
+             item_type=item_type_of_string item_type }
 
 let get_question db ~user_id ~module_id position =
   with_connection db (fun connection ->
@@ -650,10 +653,12 @@ let review_questions db ~user_id attempt_id =
   with_connection db (fun connection ->
       let (module Db : Caqti_lwt.CONNECTION) = connection in
       Db.collect_list Q.review_questions (attempt_id, user_id)
-      >|= Result.map (List.filter_map (fun (id, external_id, position, answer, is_correct,
-                                           domain, skill, difficulty, module_code) ->
+      >|= Result.map (List.filter_map (fun (id, external_id, question_id,
+                                           position, answer, is_correct, domain,
+                                           skill, difficulty, module_code) ->
               match difficulty_of_string difficulty, module_of_string module_code with
               | Some difficulty, Some module_kind ->
-                  Some { id; external_id; position; answer; is_correct=Option.map ((<>) 0) is_correct;
-                         domain; skill; difficulty; module_kind }
+                  Some { id; external_id; question_id; position; answer;
+                         is_correct=Option.map ((<>) 0) is_correct; domain; skill;
+                         difficulty; module_kind }
               | _ -> None)))

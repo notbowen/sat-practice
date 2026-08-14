@@ -455,6 +455,11 @@ let answer_control (assigned : Db.assigned_question) (detail : question_detail) 
                (escape option.letter) checked (escape option.letter) option.content)
       |> String.concat ""
 
+let question_source_html question_id =
+  Printf.sprintf
+    {|<span class="question-source">College Board ID <code>%s</code> · <a href="%s" target="_blank" rel="noopener noreferrer">Open original ↗</a></span>|}
+    (escape question_id) (escape College_board.results_url)
+
 let palette_html attempt_id module_id current states =
   states
   |> List.map (fun (state : Db.question_state) ->
@@ -482,7 +487,9 @@ let take_module db session request =
             | Error message ->
                 Dream.html ~status:`Service_Unavailable
                   (layout ~user:session ~title:"Question unavailable"
-                     (Printf.sprintf {|<section class="card"><h1>This question could not be loaded</h1><p>Your timer is still running. Retry shortly or move to another question from the attempt.</p><p class="muted">%s</p><a class="button" href="/attempts/%d/modules/%d/take?question=%d">Retry</a></section>|} (escape message) attempt_id module_.id position))
+                     (Printf.sprintf {|<section class="card"><h1>This question could not be loaded</h1><p>Your timer is still running. Retry shortly or move to another question from the attempt.</p><p>%s</p><p class="muted">%s</p><a class="button" href="/attempts/%d/modules/%d/take?question=%d">Retry</a></section>|}
+                        (question_source_html assigned.question_id) (escape message)
+                        attempt_id module_.id position))
             | Ok detail ->
                 Db.update_item_type db assigned.external_id detail.item_type >>= fun () ->
                 Db.question_states db ~user_id:session.Db.user.id ~module_id:module_.id >>= fun states ->
@@ -495,12 +502,14 @@ let take_module db session request =
                     {|<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>%s · SAT Revision</title><link rel="stylesheet" href="/static/main.css"></head>
-<body><div id="test-app" data-attempt-id="%d" data-module-id="%d" data-question-id="%d" data-deadline="%Ld" data-csrf="%s" data-results-url="/attempts/%d/results"><header class="test-header"><a class="brand" href="/attempts/%d"><span>SAT</span> Revision</a><div id="timer" class="timer">--:--</div><strong>%s</strong></header><div class="test-layout"><aside class="palette"><h2>Questions</h2><div class="palette-grid">%s</div><div class="palette-key"><span>● Answered</span><span>○ Unanswered</span><span>★ Review</span></div></aside><main class="question-pane"><div class="question-meta"><span>Question %d of %d</span><span>%s · %s</span></div><article class="question-content">%s</article><div id="answer-control" class="answers">%s</div><div class="question-tools"><label><input id="flag-input" type="checkbox"%s> Mark for review</label><span id="save-state" aria-live="polite">Saved</span></div><nav class="question-nav">%s%s</nav></main></div></div><script src="/static/mathjax.js" defer></script><script src="/static/test.js" defer></script></body></html>|}
+<body><div id="test-app" data-attempt-id="%d" data-module-id="%d" data-question-id="%d" data-deadline="%Ld" data-csrf="%s" data-results-url="/attempts/%d/results"><header class="test-header"><a class="brand" href="/attempts/%d"><span>SAT</span> Revision</a><div id="timer" class="timer">--:--</div><strong>%s</strong></header><div class="test-layout"><aside class="palette"><h2>Questions</h2><div class="palette-grid">%s</div><div class="palette-key"><span>● Answered</span><span>○ Unanswered</span><span>★ Review</span></div></aside><main class="question-pane"><div class="question-meta"><span>Question %d of %d</span><span>%s · %s</span>%s</div><article class="question-content">%s</article><div id="answer-control" class="answers">%s</div><div class="question-tools"><label><input id="flag-input" type="checkbox"%s> Mark for review</label><span id="save-state" aria-live="polite">Saved</span></div><nav class="question-nav">%s%s</nav></main></div></div><script src="/static/mathjax.js" defer></script><script src="/static/test.js" defer></script></body></html>|}
                     (escape (module_label module_.kind))
                     attempt_id module_.id assigned.id deadline (escape session.csrf_token) attempt_id attempt_id
                     (escape (module_label module_.kind)) (palette_html attempt_id module_.id position states)
                     position module_.question_count (escape assigned.domain_name) (escape (difficulty_label assigned.difficulty))
-                    question_html (answer_control assigned detail) (if assigned.flagged then " checked" else "") previous next
+                    (question_source_html assigned.question_id) question_html
+                    (answer_control assigned detail)
+                    (if assigned.flagged then " checked" else "") previous next
                 in Dream.html body)
 
 let api_question db session request =
@@ -513,10 +522,12 @@ let api_question db session request =
             Db.get_question db ~user_id:session.Db.user.id ~module_id position >>= function
             | None -> Dream.json ~status:`Not_Found {|{"error":"not found"}|}
             | Some assigned -> College_board.get_question assigned.external_id >>= function
-                | Error message -> Dream.json ~status:`Service_Unavailable (Yojson.Safe.to_string (`Assoc ["error", `String message]))
+                | Error message ->
+                    Dream.json ~status:`Service_Unavailable
+                      (Yojson.Safe.to_string (`Assoc ["error", `String message; "question_id", `String assigned.question_id; "source_url", `String College_board.results_url]))
                 | Ok detail ->
                     let options = `List (List.map (fun option -> `Assoc ["letter",`String option.letter; "content",`String option.content]) detail.answer_options) in
-                    Dream.json (Yojson.Safe.to_string (`Assoc ["position",`Int position; "stimulus",`String detail.stimulus; "stem",`String detail.stem; "type",`String (item_type_to_string detail.item_type); "options",options; "answer", (match assigned.answer with None -> `Null | Some a -> `String a); "flagged",`Bool assigned.flagged])))
+                    Dream.json (Yojson.Safe.to_string (`Assoc ["position",`Int position; "question_id",`String assigned.question_id; "source_url",`String College_board.results_url; "stimulus",`String detail.stimulus; "stem",`String detail.stem; "type",`String (item_type_to_string detail.item_type); "options",options; "answer", (match assigned.answer with None -> `Null | Some a -> `String a); "flagged",`Bool assigned.flagged])))
   | _ -> Dream.json ~status:`Bad_Request {|{"error":"invalid identifier"}|}
 
 let api_save db session request =
@@ -605,7 +616,12 @@ let review_page db session request =
               Dream.html (layout ~user:session ~title:"Review" (Printf.sprintf {|<section class="card"><p class="eyebrow">REVIEW</p><h1>No mistakes to review</h1><p>Every submitted question in this practice set was correct.</p><a class="button" href="/attempts/%d/results">Back to results</a></section>|} attempt_id))
           | Some question ->
               College_board.get_question question.external_id >>= function
-              | Error message -> Dream.html ~status:`Service_Unavailable (layout ~user:session ~title:"Review unavailable" (Printf.sprintf {|<section class="card"><h1>Review content is temporarily unavailable</h1><p>%s</p></section>|} (escape message)))
+              | Error message ->
+                  Dream.html ~status:`Service_Unavailable
+                    (layout ~user:session ~title:"Review unavailable"
+                       (Printf.sprintf {|<section class="card"><h1>Review content is temporarily unavailable</h1><p>%s</p><p class="muted">%s</p></section>|}
+                          (question_source_html question.question_id)
+                          (escape message)))
               | Ok detail ->
                   let choices = match detail.item_type with
                     | Student_response -> ""
@@ -614,9 +630,10 @@ let review_page db session request =
                   let previous = if index > 1 then Printf.sprintf {|<a class="button button-secondary" href="/attempts/%d/review?item=%d">Previous</a>|} attempt_id (index-1) else {|<span></span>|} in
                   let next = if index < List.length questions then Printf.sprintf {|<a class="button" href="/attempts/%d/review?item=%d">Next mistake</a>|} attempt_id (index+1) else Printf.sprintf {|<a class="button" href="/attempts/%d/results">Done</a>|} attempt_id in
                   Dream.html (layout ~user:session ~title:"Review mistakes" ~scripts:[ "/static/mathjax.js" ]
-                    (Printf.sprintf {|<section class="narrow"><a class="back" href="/attempts/%d/results">← Results</a><div class="question-meta"><span>Mistake %d of %d · %s</span><span>%s · %s</span></div><article class="card review-card"><div class="question-content">%s%s</div><div class="review-choices">%s</div><div class="answer-comparison"><div><span>Your answer</span><strong>%s</strong></div><div class="correct"><span>Correct answer</span><strong>%s</strong></div></div><section class="rationale"><h2>Why</h2>%s</section></article><nav class="question-nav">%s%s</nav></section>|}
+                    (Printf.sprintf {|<section class="narrow"><a class="back" href="/attempts/%d/results">← Results</a><div class="question-meta"><span>Mistake %d of %d · %s</span><span>%s · %s</span>%s</div><article class="card review-card"><div class="question-content">%s%s</div><div class="review-choices">%s</div><div class="answer-comparison"><div><span>Your answer</span><strong>%s</strong></div><div class="correct"><span>Correct answer</span><strong>%s</strong></div></div><section class="rationale"><h2>Why</h2>%s</section></article><nav class="question-nav">%s%s</nav></section>|}
                       attempt_id index (List.length questions) (escape (module_label question.module_kind))
-                      (escape question.domain) (escape (difficulty_label question.difficulty)) detail.stimulus detail.stem choices
+                      (escape question.domain) (escape (difficulty_label question.difficulty))
+                      (question_source_html question.question_id) detail.stimulus detail.stem choices
                       (escape (Option.value ~default:"Unanswered" question.answer))
                       (escape (String.concat " or " detail.correct_answers)) detail.rationale previous next))
 

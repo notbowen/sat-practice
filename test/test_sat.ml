@@ -235,6 +235,8 @@ let database_test () =
     Alcotest.(check bool) "deadline stored" true (Option.is_some active_module.deadline_at);
     Db.get_question db ~user_id:alice.id ~module_id:module_.id 1 >>= fun question ->
     let question = Option.get question in
+    Alcotest.(check bool) "public question ID loaded" true
+      (String.starts_with ~prefix:"q-" question.question_id);
     Lwt.join
       [ Db.save_answer db ~module_id:module_.id ~question_id:question.id (Some "A");
         Db.save_flag db ~module_id:module_.id ~question_id:question.id true ]

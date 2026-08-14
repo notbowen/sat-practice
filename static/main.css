@@ -118,6 +118,8 @@ footer { padding: 24px; border-top: 1px solid var(--line); text-align: center; c
 .palette-key { display: grid; gap: 7px; margin-top: 24px; color: var(--muted); font-size: .72rem; }
 .question-pane { width: min(850px, 100%); padding: 38px clamp(24px, 5vw, 72px) 60px; }
 .question-meta { display: flex; justify-content: space-between; gap: 20px; color: var(--muted); font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 30px; }
+.question-source code { color: var(--ink); font-size: .9em; text-transform: none; }
+.question-source a { color: var(--green); }
 .question-content { font-family: Georgia, "Times New Roman", serif; font-size: 1.13rem; line-height: 1.7; }
 .question-content img, .question-content svg { max-width: 100%; height: auto; }
 .answers { display: grid; gap: 10px; margin: 34px 0 24px; }

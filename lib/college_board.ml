@@ -8,6 +8,12 @@ let lookup_url = base_url ^ "/lookup"
 let questions_url = base_url ^ "/digital/get-questions"
 let question_url = base_url ^ "/digital/get-question"
 
+(* The Educator Question Bank renders individual questions in a modal and does
+   not publish stable per-question URLs.  Keep the public question ID next to
+   this link in the UI so the source item can still be identified exactly. *)
+let results_url =
+  "https://satsuiteeducatorquestionbank.collegeboard.org/digital/results"
+
 let json_headers =
   Cohttp.Header.init_with "content-type" "application/json"
   |> fun headers ->

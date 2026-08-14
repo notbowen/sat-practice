@@ -85,11 +85,17 @@ let sanitize_style value =
   |> String.split_on_char ';'
   |> List.filter_map (fun declaration ->
          match String.split_on_char ':' declaration with
-         | [ property; setting ]
-           when String.equal (String.lowercase_ascii (String.trim property)) "text-align" ->
+         | [ property; setting ] ->
+             let property = String.lowercase_ascii (String.trim property) in
              let setting = String.lowercase_ascii (String.trim setting) in
-             if List.mem setting [ "left"; "right"; "center" ] then
-               Some ("text-align: " ^ setting)
+             if String.equal property "text-align"
+                && List.mem setting [ "left"; "right"; "center" ]
+             then Some ("text-align: " ^ setting)
+             else if
+               String.equal property "text-decoration"
+               && String.equal setting "underline"
+             then
+               Some "text-decoration: underline"
              else None
          | _ -> None)
   |> String.concat "; "

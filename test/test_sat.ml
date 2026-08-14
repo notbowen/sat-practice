@@ -43,7 +43,7 @@ let fixture_pool () =
 
 let test_sanitize () =
   let dirty =
-    {|<div onclick="steal()"><script>alert(1)</script><p style="color:red;text-align:center">Safe</p><a href="javascript:alert(1)">link</a><math><mfrac><mn>1</mn><mn>2</mn></mfrac><mfenced open="|" close="|" separators=","><mi>x</mi></mfenced></math><svg onload="bad()" viewBox="0 0 10 10"><defs><clipPath id="clip1"><rect width="4" height="4"/></clipPath></defs><foreignObject><script>x</script></foreignObject><path d="M0 0L1 1" clip-path="url(#clip1)" style="fill:none;stroke:#000000;stroke-width:0.7;stroke-dasharray:3, 2;clip-path:url(#clip1)"/><circle cx="1" cy="1" r="1" style="fill:url(https://evil.example/x);fill-opacity:0.5;behavior:url(x)"/><use xlink:href="#glyph-1"/><use href="#glyph-2"/><use xlink:href="https://evil.example/x.svg#a"/></svg><img src="https://evil.example/x" onerror="bad()"></div>|}
+    {|<div onclick="steal()"><script>alert(1)</script><p style="color:red;text-align:center">Safe</p><span style="color:red;text-decoration: underline" role="region">Referenced text</span><a href="javascript:alert(1)">link</a><math><mfrac><mn>1</mn><mn>2</mn></mfrac><mfenced open="|" close="|" separators=","><mi>x</mi></mfenced></math><svg onload="bad()" viewBox="0 0 10 10"><defs><clipPath id="clip1"><rect width="4" height="4"/></clipPath></defs><foreignObject><script>x</script></foreignObject><path d="M0 0L1 1" clip-path="url(#clip1)" style="fill:none;stroke:#000000;stroke-width:0.7;stroke-dasharray:3, 2;clip-path:url(#clip1)"/><circle cx="1" cy="1" r="1" style="fill:url(https://evil.example/x);fill-opacity:0.5;behavior:url(x)"/><use xlink:href="#glyph-1"/><use href="#glyph-2"/><use xlink:href="https://evil.example/x.svg#a"/></svg><img src="https://evil.example/x" onerror="bad()"></div>|}
   in
   let clean = Sanitize.fragment dirty in
   Alcotest.(check bool) "safe text retained" true (contains clean "Safe");
@@ -53,6 +53,7 @@ let test_sanitize () =
   Alcotest.(check bool) "MathML separators retained" true (contains clean {|separators=","|});
   Alcotest.(check bool) "safe SVG retained" true (contains clean "<path");
   Alcotest.(check bool) "safe style retained" true (contains clean "text-align: center");
+  Alcotest.(check bool) "underline style retained" true (contains clean "text-decoration: underline");
   Alcotest.(check bool) "SVG fill retained" true (contains clean "fill: none");
   Alcotest.(check bool) "SVG stroke retained" true (contains clean "stroke: #000000");
   Alcotest.(check bool) "SVG dasharray retained" true (contains clean "stroke-dasharray: 3, 2");
